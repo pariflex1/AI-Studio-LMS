@@ -34,13 +34,12 @@ const LeadForm: React.FC<LeadFormProps> = ({ currentUser, projects, onSuccess })
   const [checkingDuplicate, setCheckingDuplicate] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
 
-  // Initialize project_id when projects or currentUser changes
   useEffect(() => {
     if (projects.length > 0 && !formData.project_id) {
       const defaultId = currentUser.assigned_project_ids?.[0] || projects[0].id;
       setFormData(prev => ({ ...prev, project_id: defaultId }));
     }
-  }, [projects, currentUser]);
+  }, [projects, currentUser, formData.project_id]);
 
   useEffect(() => {
     const contact = formData.client_contact.replace(/\D/g, '');
@@ -102,7 +101,7 @@ const LeadForm: React.FC<LeadFormProps> = ({ currentUser, projects, onSuccess })
     e.preventDefault();
     if (isDuplicate || submitting) return;
     if (!formData.project_id) {
-      setFormError("Target cluster node is required.");
+      setFormError("Target cluster node is required. Please assign a project.");
       return;
     }
 
@@ -122,9 +121,11 @@ const LeadForm: React.FC<LeadFormProps> = ({ currentUser, projects, onSuccess })
           if (!uploadError) {
             const { data: { publicUrl } } = supabase.storage.from('lead-images').getPublicUrl(fileName);
             imageUrl = publicUrl;
+          } else {
+            console.warn("Storage upload failed (check if 'lead-images' bucket is created and public):", uploadError);
           }
         } catch (storageErr) {
-          console.warn("Storage upload failed, proceeding without image", storageErr);
+          console.warn("Storage upload logic failed, proceeding without image", storageErr);
         }
       }
 
@@ -137,10 +138,14 @@ const LeadForm: React.FC<LeadFormProps> = ({ currentUser, projects, onSuccess })
           client_image_url: imageUrl || null,
         });
 
-      if (error) throw error;
+      if (error) {
+        console.error("Supabase Insert Error:", error);
+        throw new Error(error.message || "Database rejected the entry. Check your table RLS policies.");
+      }
+      
       onSuccess();
     } catch (err: any) {
-      setFormError(err.message || "Failed to deploy lead to cluster.");
+      setFormError(err.message || "Critical failure during lead deployment.");
     } finally {
       setSubmitting(false);
     }
@@ -177,11 +182,10 @@ const LeadForm: React.FC<LeadFormProps> = ({ currentUser, projects, onSuccess })
         {formError && (
           <div className="p-6 bg-rose-50 border border-rose-100 rounded-3xl flex items-center gap-4 text-rose-600 animate-in slide-in-from-top-2">
             <AlertCircle size={20} />
-            <p className="text-xs font-black uppercase tracking-widest">{formError}</p>
+            <p className="text-xs font-black uppercase tracking-widest leading-relaxed">{formError}</p>
           </div>
         )}
 
-        {/* Photo Section */}
         <div className="flex justify-center flex-col items-center gap-4">
           <div className="relative group cursor-pointer" onClick={() => fileInputRef.current?.click()}>
             <div 
@@ -204,7 +208,6 @@ const LeadForm: React.FC<LeadFormProps> = ({ currentUser, projects, onSuccess })
           <p className="text-[9px] font-black text-slate-400 uppercase tracking-[0.3em]">Attach Identity Image</p>
         </div>
 
-        {/* Step 1 */}
         <div className="space-y-10">
           <div className="flex items-center gap-4 border-b border-slate-50 pb-5">
              <span className="bg-slate-900 text-white w-7 h-7 rounded-full flex items-center justify-center text-[11px] font-black shadow-lg">1</span>
@@ -217,7 +220,6 @@ const LeadForm: React.FC<LeadFormProps> = ({ currentUser, projects, onSuccess })
           </div>
         </div>
 
-        {/* Step 2 */}
         <div className="space-y-10">
           <div className="flex items-center gap-4 border-b border-slate-50 pb-5">
              <span className="bg-slate-900 text-white w-7 h-7 rounded-full flex items-center justify-center text-[11px] font-black shadow-lg">2</span>
@@ -230,7 +232,6 @@ const LeadForm: React.FC<LeadFormProps> = ({ currentUser, projects, onSuccess })
           </div>
         </div>
 
-        {/* Step 3 */}
         <div className="space-y-10">
           <div className="flex items-center gap-4 border-b border-slate-50 pb-5">
              <span className="bg-slate-900 text-white w-7 h-7 rounded-full flex items-center justify-center text-[11px] font-black shadow-lg">3</span>
