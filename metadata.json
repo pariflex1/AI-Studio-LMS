@@ -1,0 +1,7 @@
+{
+  "name": "Antigravity CRM - Real Estate Lead Manager",
+  "description": "A high-performance lead management system for real estate teams featuring shared project pools, real-time duplicate detection, and secure role-based access control.",
+  "requestFramePermissions": [
+    "camera"
+  ]
+}
