@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect } from 'react';
-import { Users, Plus, LayoutDashboard, LogOut, Briefcase, PlusCircle, UserPlus, Mail, Shield, CheckCircle2, Loader2, Info, X, Save, FolderPlus, Settings, PieChart, UserCheck, Rocket, Menu, Home, ShieldAlert, Cpu, Link, Copy } from 'lucide-react';
+import { Users, Plus, LayoutDashboard, LogOut, Briefcase, PlusCircle, UserPlus, Mail, Shield, CheckCircle2, Loader2, Info, X, Save, FolderPlus, Settings, PieChart, UserCheck, Rocket, Menu, Home, ShieldAlert, Cpu, Link, Copy, Send } from 'lucide-react';
 import Dashboard from './components/Dashboard';
 import LeadForm from './components/LeadForm';
 import { Profile, Project, AuthState } from './types';
@@ -22,6 +22,11 @@ const App: React.FC = () => {
   
   const [mgmtSection, setMgmtSection] = useState<'projects' | 'team'>('projects');
   const [copyFeedback, setCopyFeedback] = useState<string | null>(null);
+
+  // Invitation State
+  const [inviteEmail, setInviteEmail] = useState('');
+  const [inviteTargetProjectId, setInviteTargetProjectId] = useState('');
+  const [isSendingInvite, setIsSendingInvite] = useState(false);
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => {
@@ -64,7 +69,6 @@ const App: React.FC = () => {
 
       let userProfile = profile as Profile;
       
-      // Handle Pending Invitations from localStorage
       const pendingInviteId = localStorage.getItem('pending_invite_id');
       if (pendingInviteId && !userProfile.assigned_project_ids.includes(pendingInviteId)) {
         const updatedIds = [...userProfile.assigned_project_ids, pendingInviteId];
@@ -111,6 +115,9 @@ const App: React.FC = () => {
       const { data, error } = await query;
       if (error) throw error;
       setProjects(data as Project[] || []);
+      if (data && data.length > 0 && !inviteTargetProjectId) {
+        setInviteTargetProjectId(data[0].id);
+      }
     } catch (err) {
       console.error('Error fetching projects:', err);
     }
@@ -159,6 +166,42 @@ const App: React.FC = () => {
       setTeamProfiles(prev => prev.map(p => p.id === profileId ? { ...p, assigned_project_ids: updatedIds } : p));
     } catch (err) {
       console.error('Assignment update failed:', err);
+    }
+  };
+
+  const handleSendEmailInvite = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!inviteEmail || !inviteTargetProjectId || isSendingInvite) return;
+    
+    setIsSendingInvite(true);
+    const selectedProject = projects.find(p => p.id === inviteTargetProjectId);
+    const projectName = selectedProject?.name || 'our Lead Management system';
+    const inviteLink = `${window.location.origin}${window.location.pathname}?invite=${inviteTargetProjectId}`;
+    
+    try {
+      // Calling Supabase Edge Function to handle backend email sending
+      const { data, error } = await supabase.functions.invoke('send-invitation', {
+        body: {
+          to: inviteEmail,
+          projectName: projectName,
+          inviteLink: inviteLink,
+          inviterEmail: authState.user?.email
+        }
+      });
+
+      if (error) throw error;
+
+      setInviteEmail('');
+      setCopyFeedback('invite_sent');
+      setTimeout(() => setCopyFeedback(null), 3000);
+    } catch (err) {
+      console.error('Backend invitation failed:', err);
+      // Fallback to mailto if Edge Function isn't deployed or accessible
+      const subject = encodeURIComponent(`Invitation to join project: ${projectName}`);
+      const body = encodeURIComponent(`Hello,\n\nYou have been invited to join the "${projectName}" node.\n\nAccess Link: ${inviteLink}`);
+      window.location.href = `mailto:${inviteEmail}?subject=${subject}&body=${body}`;
+    } finally {
+      setIsSendingInvite(false);
     }
   };
 
@@ -259,6 +302,7 @@ const App: React.FC = () => {
                   <button onClick={() => setMgmtSection('projects')} className={`px-10 py-3 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all ${mgmtSection === 'projects' ? 'bg-indigo-600 text-white' : 'text-slate-500'}`}>Manage Clusters</button>
                   <button onClick={() => setMgmtSection('team')} className={`px-10 py-3 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all ${mgmtSection === 'team' ? 'bg-indigo-600 text-white' : 'text-slate-500'}`}>Team Authorization</button>
                 </div>
+
                 {mgmtSection === 'projects' ? (
                   <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
                     {projects.map(p => (
@@ -287,32 +331,98 @@ const App: React.FC = () => {
                     ))}
                   </div>
                 ) : (
-                  <div className="bg-white rounded-[2.5rem] border border-slate-200 overflow-hidden shadow-sm">
-                    <div className="px-10 py-6 border-b border-slate-100 bg-slate-50/30 font-black text-[10px] text-slate-400 uppercase tracking-[0.3em]">Authorized Personnel Registry</div>
-                    <div className="divide-y divide-slate-50">
-                      {teamProfiles.map(profile => (
-                        <div key={profile.id} className="p-8 flex flex-col gap-6 hover:bg-slate-50/50 transition-colors">
-                          <div className="flex items-center justify-between">
-                            <div className="flex items-center gap-4">
-                              <div className="w-14 h-14 rounded-2xl bg-indigo-50 flex items-center justify-center text-indigo-600 font-black border border-indigo-100 text-xl uppercase">{profile.email?.[0]}</div>
-                              <div>
-                                <h5 className="font-black text-slate-900 text-lg leading-none">{profile.email}</h5>
-                                <div className="flex items-center gap-3 mt-3">
-                                  <span className={`px-3 py-1.5 rounded-full text-[9px] font-black uppercase tracking-widest ${profile.role === 'admin' ? 'bg-indigo-100 text-indigo-700' : 'bg-slate-100 text-slate-500'}`}>{profile.role}</span>
-                                  <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">{profile.assigned_project_ids?.length || 0} Nodes Assigned</p>
+                  <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+                    <div className="lg:col-span-2 space-y-6">
+                      <div className="bg-white rounded-[2.5rem] border border-slate-200 overflow-hidden shadow-sm">
+                        <div className="px-10 py-6 border-b border-slate-100 bg-slate-50/30 font-black text-[10px] text-slate-400 uppercase tracking-[0.3em]">Authorized Personnel Registry</div>
+                        <div className="divide-y divide-slate-50">
+                          {teamProfiles.map(profile => (
+                            <div key={profile.id} className="p-8 flex flex-col gap-6 hover:bg-slate-50/50 transition-colors">
+                              <div className="flex items-center justify-between">
+                                <div className="flex items-center gap-4">
+                                  <div className="w-14 h-14 rounded-2xl bg-indigo-50 flex items-center justify-center text-indigo-600 font-black border border-indigo-100 text-xl uppercase">{profile.email?.[0]}</div>
+                                  <div>
+                                    <h5 className="font-black text-slate-900 text-lg leading-none">{profile.email}</h5>
+                                    <div className="flex items-center gap-3 mt-3">
+                                      <span className={`px-3 py-1.5 rounded-full text-[9px] font-black uppercase tracking-widest ${profile.role === 'admin' ? 'bg-indigo-100 text-indigo-700' : 'bg-slate-100 text-slate-500'}`}>{profile.role}</span>
+                                      <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">{profile.assigned_project_ids?.length || 0} Nodes Assigned</p>
+                                    </div>
+                                  </div>
                                 </div>
                               </div>
+                              <div className="flex flex-wrap gap-2 pt-2">
+                                {projects.map(proj => (
+                                  <button key={proj.id} onClick={() => handleToggleProjectAssignment(profile.id, proj.id)} className={`px-5 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-widest border transition-all ${profile.assigned_project_ids?.includes(proj.id) ? 'bg-indigo-600 border-indigo-600 text-white' : 'bg-white border-slate-200 text-slate-400'}`}>
+                                    {proj.name}
+                                  </button>
+                                ))}
+                              </div>
                             </div>
-                          </div>
-                          <div className="flex flex-wrap gap-2 pt-2">
-                            {projects.map(proj => (
-                              <button key={proj.id} onClick={() => handleToggleProjectAssignment(profile.id, proj.id)} className={`px-5 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-widest border transition-all ${profile.assigned_project_ids?.includes(proj.id) ? 'bg-indigo-600 border-indigo-600 text-white' : 'bg-white border-slate-200 text-slate-400'}`}>
-                                {proj.name}
-                              </button>
-                            ))}
-                          </div>
+                          ))}
                         </div>
-                      ))}
+                      </div>
+                    </div>
+
+                    <div className="space-y-6">
+                      <div className="bg-indigo-600 p-8 rounded-[2.5rem] shadow-xl text-white relative overflow-hidden group">
+                        <div className="absolute top-0 right-0 p-4 opacity-10 group-hover:rotate-12 transition-transform">
+                          <Send size={80} />
+                        </div>
+                        <h4 className="text-xl font-black mb-1 uppercase tracking-tight">Onboard Node Staff</h4>
+                        <p className="text-[9px] font-black uppercase tracking-widest opacity-60 mb-8">Send Identity Activation Link</p>
+                        
+                        <form onSubmit={handleSendEmailInvite} className="space-y-4">
+                          <div className="space-y-2">
+                            <label className="text-[8px] font-black uppercase tracking-[0.3em] opacity-80 px-1">Recipient Email</label>
+                            <input 
+                              type="email" 
+                              required 
+                              placeholder="colleague@agency.com" 
+                              className="w-full px-5 py-4 bg-white/10 border border-white/20 rounded-2xl outline-none focus:bg-white focus:text-indigo-900 transition-all font-bold placeholder:text-white/40"
+                              value={inviteEmail}
+                              onChange={(e) => setInviteEmail(e.target.value)}
+                            />
+                          </div>
+                          
+                          <div className="space-y-2">
+                            <label className="text-[8px] font-black uppercase tracking-[0.3em] opacity-80 px-1">Initial Cluster Node</label>
+                            <select 
+                              required
+                              className="w-full px-5 py-4 bg-white/10 border border-white/20 rounded-2xl outline-none focus:bg-white focus:text-indigo-900 transition-all font-black text-[10px] uppercase tracking-widest appearance-none cursor-pointer"
+                              value={inviteTargetProjectId}
+                              onChange={(e) => setInviteTargetProjectId(e.target.value)}
+                            >
+                              {projects.map(p => <option key={p.id} value={p.id} className="text-slate-900">{p.name}</option>)}
+                            </select>
+                          </div>
+
+                          <button 
+                            type="submit" 
+                            disabled={isSendingInvite || !inviteEmail}
+                            className={`w-full py-5 rounded-[1.5rem] font-black text-[10px] uppercase tracking-[0.3em] transition-all flex items-center justify-center gap-3 ${copyFeedback === 'invite_sent' ? 'bg-emerald-500 text-white' : 'bg-white text-indigo-600 hover:scale-[1.02] active:scale-95 shadow-lg'}`}
+                          >
+                            {isSendingInvite ? (
+                              <Loader2 className="animate-spin" size={18} />
+                            ) : copyFeedback === 'invite_sent' ? (
+                              <><CheckCircle2 size={18} /> Invitation Dispatched</>
+                            ) : (
+                              <><Send size={18} /> Dispatch Backend Invite</>
+                            )}
+                          </button>
+                        </form>
+                      </div>
+
+                      <div className="bg-white p-8 rounded-[2.5rem] border border-slate-200 shadow-sm">
+                        <div className="flex items-center gap-3 mb-6">
+                           <div className="p-2 bg-amber-50 rounded-lg text-amber-500">
+                             <Info size={16} />
+                           </div>
+                           <h5 className="text-[10px] font-black uppercase tracking-widest text-slate-800">Security Note</h5>
+                        </div>
+                        <p className="text-[10px] font-medium text-slate-400 leading-relaxed">
+                          Invitations generate a unique activation link. Once the recipient authenticates via this link, their identity node will be automatically bound to the selected project cluster.
+                        </p>
+                      </div>
                     </div>
                   </div>
                 )}

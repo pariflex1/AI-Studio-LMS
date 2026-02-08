@@ -1,6 +1,7 @@
 
-import React, { useState, useEffect } from 'react';
-import { User, MapPin, Mail, Briefcase, IndianRupee, Info, Loader2, Save, Phone, Building, Globe, Layers, UserCircle, AlertCircle } from 'lucide-react';
+import React, { useState, useEffect, useRef } from 'react';
+/* Added 'Plus' to the import list from 'lucide-react' to fix the reported reference error */
+import { User, MapPin, Mail, Briefcase, IndianRupee, Info, Loader2, Save, Phone, Building, Globe, Layers, UserCircle, AlertCircle, Camera, X, CheckCircle2, Plus } from 'lucide-react';
 import { Profile, Project, LeadStatus } from '../types';
 import { supabase } from '../lib/supabase';
 
@@ -11,6 +12,7 @@ interface LeadFormProps {
 }
 
 const LeadForm: React.FC<LeadFormProps> = ({ currentUser, projects, onSuccess }) => {
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const [formData, setFormData] = useState({
     client_name: '',
     client_contact: '',
@@ -23,15 +25,19 @@ const LeadForm: React.FC<LeadFormProps> = ({ currentUser, projects, onSuccess })
     profession: '',
     prop_pref: '',
     lead_source: 'Direct',
+    client_image_url: '',
   });
 
+  const [imageFile, setImageFile] = useState<File | null>(null);
+  const [imagePreview, setImagePreview] = useState<string | null>(null);
   const [isDuplicate, setIsDuplicate] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [checkingDuplicate, setCheckingDuplicate] = useState(false);
 
   useEffect(() => {
-    if (formData.client_contact.length === 10) {
-      handleDuplicateCheck(formData.client_contact);
+    const contact = formData.client_contact.replace(/\D/g, '');
+    if (contact.length === 10) {
+      handleDuplicateCheck(contact);
     } else {
       setIsDuplicate(false);
     }
@@ -50,18 +56,7 @@ const LeadForm: React.FC<LeadFormProps> = ({ currentUser, projects, onSuccess })
 
       if (!error && data) {
         setIsDuplicate(true);
-        setFormData(prev => ({
-          ...prev,
-          client_name: data.client_name,
-          email: data.email || '',
-          budget: data.budget || '',
-          city: data.city || '',
-          status: data.status,
-          pref_location: data.pref_location || '',
-          profession: data.profession || '',
-          prop_pref: data.prop_pref || '',
-          lead_source: data.lead_source || 'Direct',
-        }));
+        // Do not auto-fill to allow user to see it's a block
       } else {
         setIsDuplicate(false);
       }
@@ -69,6 +64,18 @@ const LeadForm: React.FC<LeadFormProps> = ({ currentUser, projects, onSuccess })
       console.error(err);
     } finally {
       setCheckingDuplicate(false);
+    }
+  };
+
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (e.target.files && e.target.files[0]) {
+      const file = e.target.files[0];
+      setImageFile(file);
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        setImagePreview(reader.result as string);
+      };
+      reader.readAsDataURL(file);
     }
   };
 
@@ -84,16 +91,32 @@ const LeadForm: React.FC<LeadFormProps> = ({ currentUser, projects, onSuccess })
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (isDuplicate) return;
+    if (isDuplicate || submitting) return;
     setSubmitting(true);
+
     try {
+      let imageUrl = '';
+      if (imageFile) {
+        const fileExt = imageFile.name.split('.').pop();
+        const fileName = `${Math.random()}.${fileExt}`;
+        const { data: uploadData, error: uploadError } = await supabase.storage
+          .from('lead-images')
+          .upload(fileName, imageFile);
+        
+        if (uploadError) throw uploadError;
+        const { data: { publicUrl } } = supabase.storage.from('lead-images').getPublicUrl(fileName);
+        imageUrl = publicUrl;
+      }
+
       const { error } = await supabase
         .from('leads')
         .insert({
           ...formData,
           client_contact: `91${formData.client_contact}`,
           user_id: currentUser.id,
+          client_image_url: imageUrl,
         });
+
       if (error) throw error;
       onSuccess();
     } catch (err: any) {
@@ -127,6 +150,29 @@ const LeadForm: React.FC<LeadFormProps> = ({ currentUser, projects, onSuccess })
       </div>
 
       <form onSubmit={handleSubmit} className="p-12 md:p-16 space-y-16">
+        {/* Photo Section */}
+        <div className="flex justify-center flex-col items-center gap-4">
+          <div className="relative group cursor-pointer" onClick={() => fileInputRef.current?.click()}>
+            <div 
+              className="w-32 h-32 rounded-full border-4 border-slate-100 bg-slate-50 flex items-center justify-center overflow-hidden bg-cover bg-center"
+              style={{ backgroundImage: imagePreview ? `url(${imagePreview})` : 'none' }}
+            >
+              {!imagePreview && <Camera className="text-slate-300" size={32} />}
+            </div>
+            <div className="absolute bottom-0 right-0 bg-indigo-600 text-white p-2 rounded-full shadow-lg">
+              <Plus size={16} />
+            </div>
+            <input 
+              type="file" 
+              ref={fileInputRef} 
+              className="hidden" 
+              accept="image/*" 
+              onChange={handleFileChange} 
+            />
+          </div>
+          <p className="text-[10px] font-black text-indigo-600 uppercase tracking-widest">Identity Portrait</p>
+        </div>
+
         {/* Step 1 */}
         <div className="space-y-10">
           <div className="flex items-center gap-4 border-b border-slate-50 pb-5">

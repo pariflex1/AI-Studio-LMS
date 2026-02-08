@@ -35,6 +35,7 @@ export interface Lead {
   project_id: string;
   created_at: string;
   updated_at?: string;
+  notes?: string;
 }
 
 export interface AuthState {
