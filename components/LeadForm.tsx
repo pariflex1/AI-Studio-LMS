@@ -1,6 +1,5 @@
 
 import React, { useState, useEffect, useRef } from 'react';
-/* Added 'Plus' to the import list from 'lucide-react' to fix the reported reference error */
 import { User, MapPin, Mail, Briefcase, IndianRupee, Info, Loader2, Save, Phone, Building, Globe, Layers, UserCircle, AlertCircle, Camera, X, CheckCircle2, Plus } from 'lucide-react';
 import { Profile, Project, LeadStatus } from '../types';
 import { supabase } from '../lib/supabase';
@@ -19,7 +18,7 @@ const LeadForm: React.FC<LeadFormProps> = ({ currentUser, projects, onSuccess })
     email: '',
     city: '',
     budget: '',
-    project_id: currentUser.assigned_project_ids[0] || '',
+    project_id: '',
     status: 'New' as LeadStatus,
     pref_location: '',
     profession: '',
@@ -33,6 +32,15 @@ const LeadForm: React.FC<LeadFormProps> = ({ currentUser, projects, onSuccess })
   const [isDuplicate, setIsDuplicate] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [checkingDuplicate, setCheckingDuplicate] = useState(false);
+  const [formError, setFormError] = useState<string | null>(null);
+
+  // Initialize project_id when projects or currentUser changes
+  useEffect(() => {
+    if (projects.length > 0 && !formData.project_id) {
+      const defaultId = currentUser.assigned_project_ids?.[0] || projects[0].id;
+      setFormData(prev => ({ ...prev, project_id: defaultId }));
+    }
+  }, [projects, currentUser]);
 
   useEffect(() => {
     const contact = formData.client_contact.replace(/\D/g, '');
@@ -44,24 +52,24 @@ const LeadForm: React.FC<LeadFormProps> = ({ currentUser, projects, onSuccess })
   }, [formData.client_contact, formData.project_id]);
 
   const handleDuplicateCheck = async (contact: string) => {
+    if (!formData.project_id) return;
     setCheckingDuplicate(true);
     const searchVal = `91${contact}`;
     try {
       const { data, error } = await supabase
         .from('leads')
-        .select('*')
+        .select('id')
         .eq('client_contact', searchVal)
         .eq('project_id', formData.project_id)
         .maybeSingle();
 
       if (!error && data) {
         setIsDuplicate(true);
-        // Do not auto-fill to allow user to see it's a block
       } else {
         setIsDuplicate(false);
       }
     } catch (err) {
-      console.error(err);
+      console.error('Duplicate check failed:', err);
     } finally {
       setCheckingDuplicate(false);
     }
@@ -81,6 +89,7 @@ const LeadForm: React.FC<LeadFormProps> = ({ currentUser, projects, onSuccess })
 
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
     const { name, value } = e.target;
+    setFormError(null);
     if (name === 'client_contact') {
       const val = value.replace(/\D/g, '').slice(0, 10);
       setFormData(prev => ({ ...prev, [name]: val }));
@@ -92,20 +101,31 @@ const LeadForm: React.FC<LeadFormProps> = ({ currentUser, projects, onSuccess })
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (isDuplicate || submitting) return;
+    if (!formData.project_id) {
+      setFormError("Target cluster node is required.");
+      return;
+    }
+
     setSubmitting(true);
+    setFormError(null);
 
     try {
       let imageUrl = '';
       if (imageFile) {
-        const fileExt = imageFile.name.split('.').pop();
-        const fileName = `${Math.random()}.${fileExt}`;
-        const { data: uploadData, error: uploadError } = await supabase.storage
-          .from('lead-images')
-          .upload(fileName, imageFile);
-        
-        if (uploadError) throw uploadError;
-        const { data: { publicUrl } } = supabase.storage.from('lead-images').getPublicUrl(fileName);
-        imageUrl = publicUrl;
+        try {
+          const fileExt = imageFile.name.split('.').pop();
+          const fileName = `${Date.now()}-${Math.random().toString(36).substring(2)}.${fileExt}`;
+          const { data: uploadData, error: uploadError } = await supabase.storage
+            .from('lead-images')
+            .upload(fileName, imageFile);
+          
+          if (!uploadError) {
+            const { data: { publicUrl } } = supabase.storage.from('lead-images').getPublicUrl(fileName);
+            imageUrl = publicUrl;
+          }
+        } catch (storageErr) {
+          console.warn("Storage upload failed, proceeding without image", storageErr);
+        }
       }
 
       const { error } = await supabase
@@ -114,13 +134,13 @@ const LeadForm: React.FC<LeadFormProps> = ({ currentUser, projects, onSuccess })
           ...formData,
           client_contact: `91${formData.client_contact}`,
           user_id: currentUser.id,
-          client_image_url: imageUrl,
+          client_image_url: imageUrl || null,
         });
 
       if (error) throw error;
       onSuccess();
     } catch (err: any) {
-      alert(`Registration Error: ${err.message}`);
+      setFormError(err.message || "Failed to deploy lead to cluster.");
     } finally {
       setSubmitting(false);
     }
@@ -135,31 +155,42 @@ const LeadForm: React.FC<LeadFormProps> = ({ currentUser, projects, onSuccess })
           </div>
           <div>
             <h3 className="text-3xl font-black text-slate-900 tracking-tighter">Lead Intake Console</h3>
-            <p className="text-[10px] font-black text-slate-400 uppercase tracking-[0.4em] mt-1 flex items-center gap-2">
-              {checkingDuplicate ? <Loader2 size={12} className="animate-spin text-indigo-500" /> : <div className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></div>}
-              Registry Identity Sync Active
-            </p>
+            <div className="flex items-center gap-2 mt-1">
+               {checkingDuplicate ? (
+                 <Loader2 size={12} className="animate-spin text-indigo-500" />
+               ) : (
+                 <div className={`w-2 h-2 rounded-full ${isDuplicate ? 'bg-rose-500' : 'bg-emerald-500'} animate-pulse`}></div>
+               )}
+               <p className="text-[10px] font-black text-slate-400 uppercase tracking-[0.4em]">Registry Identity Sync Active</p>
+            </div>
           </div>
         </div>
         {isDuplicate && (
-          <div className="bg-rose-50 border border-rose-100 px-8 py-4 rounded-2xl flex items-center gap-4 animate-bounce">
-            <AlertCircle className="text-rose-500" size={24} />
-            <span className="text-[11px] font-black text-rose-600 uppercase tracking-widest">Duplicate Identity Detected</span>
+          <div className="bg-rose-50 border border-rose-100 px-8 py-4 rounded-2xl flex items-center gap-4 animate-bounce shadow-sm">
+            <AlertCircle className="text-rose-500" size={20} />
+            <span className="text-[10px] font-black text-rose-600 uppercase tracking-widest">Identity Collision</span>
           </div>
         )}
       </div>
 
       <form onSubmit={handleSubmit} className="p-12 md:p-16 space-y-16">
+        {formError && (
+          <div className="p-6 bg-rose-50 border border-rose-100 rounded-3xl flex items-center gap-4 text-rose-600 animate-in slide-in-from-top-2">
+            <AlertCircle size={20} />
+            <p className="text-xs font-black uppercase tracking-widest">{formError}</p>
+          </div>
+        )}
+
         {/* Photo Section */}
         <div className="flex justify-center flex-col items-center gap-4">
           <div className="relative group cursor-pointer" onClick={() => fileInputRef.current?.click()}>
             <div 
-              className="w-32 h-32 rounded-full border-4 border-slate-100 bg-slate-50 flex items-center justify-center overflow-hidden bg-cover bg-center"
+              className="w-32 h-32 rounded-full border-4 border-slate-100 bg-slate-50 flex items-center justify-center overflow-hidden bg-cover bg-center shadow-inner"
               style={{ backgroundImage: imagePreview ? `url(${imagePreview})` : 'none' }}
             >
-              {!imagePreview && <Camera className="text-slate-300" size={32} />}
+              {!imagePreview && <Camera className="text-slate-200" size={32} />}
             </div>
-            <div className="absolute bottom-0 right-0 bg-indigo-600 text-white p-2 rounded-full shadow-lg">
+            <div className="absolute bottom-0 right-0 bg-indigo-600 text-white p-2.5 rounded-full shadow-lg border-4 border-white">
               <Plus size={16} />
             </div>
             <input 
@@ -170,7 +201,7 @@ const LeadForm: React.FC<LeadFormProps> = ({ currentUser, projects, onSuccess })
               onChange={handleFileChange} 
             />
           </div>
-          <p className="text-[10px] font-black text-indigo-600 uppercase tracking-widest">Identity Portrait</p>
+          <p className="text-[9px] font-black text-slate-400 uppercase tracking-[0.3em]">Attach Identity Image</p>
         </div>
 
         {/* Step 1 */}
@@ -235,9 +266,11 @@ const LeadForm: React.FC<LeadFormProps> = ({ currentUser, projects, onSuccess })
               <label className="text-[10px] font-black text-white/60 uppercase tracking-widest px-2">Target Cluster Node</label>
               <select 
                 name="project_id"
+                required
                 className="w-full px-8 py-5 bg-white border border-transparent rounded-[2rem] outline-none focus:ring-8 focus:ring-white/20 font-black text-indigo-900 text-lg shadow-xl"
                 value={formData.project_id} onChange={handleInputChange}
               >
+                <option value="" disabled>Select Cluster...</option>
                 {projects.map(p => <option key={p.id} value={p.id}>{p.name.toUpperCase()}</option>)}
               </select>
             </div>
@@ -262,8 +295,13 @@ const LeadForm: React.FC<LeadFormProps> = ({ currentUser, projects, onSuccess })
           disabled={submitting || isDuplicate}
           className="w-full bg-indigo-600 text-white py-8 rounded-[3rem] font-black uppercase tracking-[0.4em] shadow-[0_20px_50px_rgba(79,70,229,0.3)] hover:bg-indigo-700 transition-all text-sm flex items-center justify-center gap-5 hover:scale-[1.01] active:scale-95 disabled:opacity-50 disabled:grayscale"
         >
-          {submitting ? <Loader2 className="animate-spin" size={28}/> : <Save size={28} />}
-          {isDuplicate ? 'IDENTICAL RECORD ABORTED' : 'COMMENCE LEAD DEPLOYMENT'}
+          {submitting ? (
+             <><Loader2 className="animate-spin" size={28}/> PROCESSING DEPLOYMENT</>
+          ) : isDuplicate ? (
+             <><AlertCircle size={28} /> COLLISION DETECTED</>
+          ) : (
+             <><Save size={28} /> COMMENCE LEAD DEPLOYMENT</>
+          )}
         </button>
       </form>
     </div>

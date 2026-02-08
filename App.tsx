@@ -179,7 +179,7 @@ const App: React.FC = () => {
     const inviteLink = `${window.location.origin}${window.location.pathname}?invite=${inviteTargetProjectId}`;
     
     try {
-      // Calling Supabase Edge Function to handle backend email sending
+      // Primary Action: Invoke Supabase Edge Function
       const { data, error } = await supabase.functions.invoke('send-invitation', {
         body: {
           to: inviteEmail,
@@ -189,17 +189,19 @@ const App: React.FC = () => {
         }
       });
 
-      if (error) throw error;
+      if (error) {
+        // Fallback: If edge function fails (e.g. not deployed), use a friendly error or mailto
+        console.warn("Edge function unreachable, falling back to manual protocol", error);
+        const subject = encodeURIComponent(`Invitation to join project: ${projectName}`);
+        const body = encodeURIComponent(`Hello,\n\nYou have been invited to join the "${projectName}" node on Antigravity CRM.\n\nAccess Link: ${inviteLink}\n\nSecurity Protocol Active.`);
+        window.location.href = `mailto:${inviteEmail}?subject=${subject}&body=${body}`;
+      }
 
       setInviteEmail('');
       setCopyFeedback('invite_sent');
       setTimeout(() => setCopyFeedback(null), 3000);
     } catch (err) {
       console.error('Backend invitation failed:', err);
-      // Fallback to mailto if Edge Function isn't deployed or accessible
-      const subject = encodeURIComponent(`Invitation to join project: ${projectName}`);
-      const body = encodeURIComponent(`Hello,\n\nYou have been invited to join the "${projectName}" node.\n\nAccess Link: ${inviteLink}`);
-      window.location.href = `mailto:${inviteEmail}?subject=${subject}&body=${body}`;
     } finally {
       setIsSendingInvite(false);
     }
