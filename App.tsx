@@ -45,7 +45,6 @@ const App: React.FC = () => {
 
   const fetchProfile = async (userId: string, retryCount = 0) => {
     try {
-      // Check for invitation in URL
       const params = new URLSearchParams(window.location.search);
       const inviteId = params.get('invite');
       if (inviteId) {
@@ -72,7 +71,6 @@ const App: React.FC = () => {
 
       let userProfile = profile as Profile;
       
-      // Auto-join project if there's a pending invite
       const pendingInviteId = localStorage.getItem('pending_invite_id');
       if (pendingInviteId && pendingInviteId !== 'null' && !userProfile.assigned_project_ids?.includes(pendingInviteId)) {
         const updatedIds = Array.from(new Set([...(userProfile.assigned_project_ids || []), pendingInviteId]));
@@ -109,7 +107,7 @@ const App: React.FC = () => {
     try {
       let query = supabase.from('projects').select('*');
       if (role === 'admin') {
-        // Admins should see all projects they manage
+        // Admins see all projects in their domain
         query = query.eq('admin_id', userId);
       } else {
         if (!assignedIds || assignedIds.length === 0) {
@@ -167,16 +165,23 @@ const App: React.FC = () => {
     }
 
     try {
-      const { error } = await supabase.from('profiles').update({ assigned_project_ids: updatedIds }).eq('id', profileId);
+      const { error } = await supabase
+        .from('profiles')
+        .update({ assigned_project_ids: updatedIds })
+        .eq('id', profileId);
+
       if (error) throw error;
       
+      // Update team list state
       setTeamProfiles(prev => prev.map(p => p.id === profileId ? { ...p, assigned_project_ids: updatedIds } : p));
       
+      // If updating current user, update authState
       if (profileId === authState.user?.id) {
         setAuthState(prev => prev.user ? { ...prev, user: { ...prev.user, assigned_project_ids: updatedIds } } : prev);
       }
     } catch (err) {
       console.error('Assignment update failed:', err);
+      alert('Security Policy Violation: Admins must have UPDATE permissions on the profiles table.');
     }
   };
 
@@ -197,7 +202,7 @@ const App: React.FC = () => {
       <div className="flex h-screen items-center justify-center bg-slate-50">
         <div className="flex flex-col items-center gap-4">
           <div className="animate-spin rounded-2xl h-12 w-12 border-4 border-indigo-600 border-t-transparent"></div>
-          <p className="text-slate-400 font-black uppercase tracking-widest text-[10px] animate-pulse">Initializing Antigravity Cluster...</p>
+          <p className="text-slate-400 font-black uppercase tracking-widest text-[10px] animate-pulse">Synchronizing Cluster...</p>
         </div>
       </div>
     );
@@ -217,10 +222,10 @@ const App: React.FC = () => {
                 <Shield className="text-white w-6 h-6" />
               </div>
               <div>
-                <h1 className="text-xl font-black text-slate-900 tracking-tighter leading-tight">Lead<br/>Node</h1>
+                <h1 className="text-xl font-black text-slate-900 tracking-tighter leading-tight">LeadNode</h1>
                 <div className="flex items-center gap-1.5 mt-1">
                   <div className="w-1.5 h-1.5 bg-emerald-500 rounded-full"></div>
-                  <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest">Secure Cloud</span>
+                  <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest">Connected</span>
                 </div>
               </div>
             </div>
@@ -234,38 +239,33 @@ const App: React.FC = () => {
           <div className="p-6 border-t border-slate-50">
             <div className="bg-slate-50 rounded-2xl p-4 mb-4 border border-slate-100">
               <div className="flex items-center gap-3">
-                <div className="w-10 h-10 rounded-xl bg-indigo-100 flex items-center justify-center text-sm font-black text-indigo-600 border border-indigo-200 uppercase">{authState.user?.email?.[0]}</div>
+                <div className="w-10 h-10 rounded-xl bg-indigo-100 flex items-center justify-center text-sm font-black text-indigo-600 uppercase">{authState.user?.email?.[0]}</div>
                 <div className="flex-1 min-w-0">
-                  <p className="text-[10px] font-black text-slate-900 truncate uppercase tracking-tight">{authState.user?.email.split('@')[0]}</p>
-                  <p className="text-[8px] font-bold uppercase tracking-widest text-indigo-600">{authState.user?.role} Authority</p>
+                  <p className="text-[10px] font-black text-slate-900 truncate uppercase">{authState.user?.email.split('@')[0]}</p>
+                  <p className="text-[8px] font-bold uppercase tracking-widest text-indigo-600">{authState.user?.role}</p>
                 </div>
               </div>
             </div>
-            <button onClick={handleLogout} className="flex items-center justify-center gap-2 w-full px-4 py-3 text-[10px] font-black text-rose-500 hover:bg-rose-50 rounded-xl transition-all uppercase tracking-widest"><LogOut size={16} /> De-Authorize</button>
+            <button onClick={handleLogout} className="flex items-center justify-center gap-2 w-full px-4 py-3 text-[10px] font-black text-rose-500 hover:bg-rose-50 rounded-xl transition-all uppercase tracking-widest"><LogOut size={16} /> Logout</button>
           </div>
         </aside>
 
         <main className="flex-1 overflow-y-auto relative bg-slate-50/50 pb-20 md:pb-0">
           <header className="sticky top-0 z-10 bg-white/80 backdrop-blur-xl border-b border-slate-100 px-6 py-4 md:px-8 md:py-6 flex items-center justify-between">
             <div>
-              <h2 className="text-xl font-black text-slate-900 tracking-tight">
-                {activeTab === 'dashboard' && 'Active Leads'}
-                {activeTab === 'add' && 'Lead Intake'}
-                {activeTab === 'projects' && 'Cluster Nodes'}
-                {activeTab === 'management' && 'Workspace Security'}
-              </h2>
-              <p className="text-[9px] font-bold text-slate-400 uppercase tracking-widest mt-0.5">{projects.length} Operational Nodes Active</p>
+              <h2 className="text-xl font-black text-slate-900 tracking-tight capitalize">{activeTab}</h2>
+              <p className="text-[9px] font-bold text-slate-400 uppercase tracking-widest mt-0.5">{projects.length} Nodes Active</p>
             </div>
             {isAdmin && (
-              <button onClick={() => setShowCreateProjectModal(true)} className="flex items-center gap-2 bg-indigo-600 text-white px-5 py-3 rounded-full font-black text-[10px] uppercase tracking-widest hover:bg-indigo-700 transition-all shadow-lg shadow-indigo-200">
-                <Rocket size={14} /> New Cluster
+              <button onClick={() => setShowCreateProjectModal(true)} className="flex items-center gap-2 bg-indigo-600 text-white px-5 py-3 rounded-full font-black text-[10px] uppercase tracking-widest hover:bg-indigo-700 transition-all shadow-lg">
+                <Rocket size={14} /> New Node
               </button>
             )}
           </header>
 
           <div className="p-6 md:p-8 max-w-7xl mx-auto">
-            {activeTab === 'dashboard' && (projects.length > 0 ? <Dashboard currentUser={authState.user!} projects={projects} /> : <EmptyState isAdmin={isAdmin} onCreate={() => setShowCreateProjectModal(true)} />)}
-            {activeTab === 'add' && (projects.length > 0 ? <LeadForm currentUser={authState.user!} projects={projects} onSuccess={() => {setActiveTab('dashboard'); fetchProfile(authState.user!.id); }} /> : <EmptyState isAdmin={isAdmin} onCreate={() => setShowCreateProjectModal(true)} />)}
+            {activeTab === 'dashboard' && <Dashboard currentUser={authState.user!} projects={projects} />}
+            {activeTab === 'add' && <LeadForm currentUser={authState.user!} projects={projects} onSuccess={() => setActiveTab('dashboard')} />}
             {activeTab === 'projects' && (
                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
                   {projects.map(p => <ProjectCard key={p.id} project={p} onCopyInvite={() => handleCopyInviteLink(p.id)} copied={copyFeedback === p.id} isAdmin={isAdmin} />)}
@@ -290,11 +290,10 @@ const App: React.FC = () => {
                             className={`px-3 py-1.5 rounded-full text-[9px] font-black uppercase tracking-widest flex items-center gap-2 border transition-all ${copyFeedback === p.id ? 'bg-emerald-50 text-emerald-600 border-emerald-100' : 'bg-slate-50 text-slate-400 border-slate-200 hover:border-indigo-600 hover:text-indigo-600'}`}
                           >
                             {copyFeedback === p.id ? <CheckCircle2 size={12}/> : <Link size={12}/>}
-                            {copyFeedback === p.id ? 'Copied' : 'Copy Link'}
+                            {copyFeedback === p.id ? 'Copied' : 'Invite'}
                           </button>
                         </div>
                         <h4 className="text-xl font-black text-slate-900 mb-2">{p.name}</h4>
-                        <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-6">Node ID: {p.id.slice(0, 8)}</p>
                         <div className="mt-auto pt-6 border-t border-slate-50 flex items-center justify-between">
                            <div className="flex -space-x-2">
                               {teamProfiles.filter(t => t.assigned_project_ids?.includes(p.id)).slice(0, 5).map(staff => (
@@ -309,7 +308,7 @@ const App: React.FC = () => {
                 ) : (
                   <div className="bg-white rounded-[2.5rem] border border-slate-200 overflow-hidden shadow-sm">
                     <div className="px-10 py-6 border-b border-slate-100 bg-slate-50/30 flex items-center justify-between">
-                      <span className="font-black text-[10px] text-slate-400 uppercase tracking-[0.3em]">Personnel Registry Authority</span>
+                      <span className="font-black text-[10px] text-slate-400 uppercase tracking-[0.3em]">Personnel Authorization Pool</span>
                     </div>
                     <div className="divide-y divide-slate-50">
                       {teamProfiles.map(profile => (
@@ -319,7 +318,7 @@ const App: React.FC = () => {
                               <div className="w-14 h-14 rounded-2xl bg-indigo-50 flex items-center justify-center text-indigo-600 font-black border border-indigo-100 text-xl uppercase">{profile.email?.[0]}</div>
                               <div>
                                 <h5 className="font-black text-slate-900 text-lg leading-none">{profile.email}</h5>
-                                <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mt-2">{profile.assigned_project_ids?.length || 0} Nodes Connected</p>
+                                <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mt-2">{profile.assigned_project_ids?.length || 0} Projects Assigned</p>
                               </div>
                             </div>
                           </div>
@@ -340,21 +339,28 @@ const App: React.FC = () => {
           </div>
         </main>
       </div>
+
       <nav className="fixed bottom-0 left-0 right-0 bg-white border-t border-slate-200 flex items-center justify-around px-2 py-4 md:hidden z-50">
         <MobileNavItem icon={<LayoutDashboard size={20} />} active={activeTab === 'dashboard'} onClick={() => setActiveTab('dashboard')} />
         <MobileNavItem icon={<PlusCircle size={20} />} active={activeTab === 'add'} onClick={() => setActiveTab('add')} />
         <MobileNavItem icon={<Briefcase size={20} />} active={activeTab === 'projects'} onClick={() => setActiveTab('projects')} />
       </nav>
+
+      {showCreateProjectModal && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-6 bg-slate-900/60 backdrop-blur-sm animate-in fade-in">
+          <div className="bg-white w-full max-w-md rounded-[3rem] shadow-2xl overflow-hidden animate-in zoom-in-95 p-10">
+            <h3 className="text-xl font-black mb-6">Create New Project Cluster</h3>
+            <input type="text" autoFocus className="w-full px-6 py-4 bg-slate-50 border border-slate-200 rounded-2xl mb-6 outline-none font-bold" value={newProjectName} onChange={(e) => setNewProjectName(e.target.value)} placeholder="Node Name" />
+            <button onClick={() => handleCreateProject()} className="w-full bg-indigo-600 text-white py-4 rounded-2xl font-black uppercase tracking-widest hover:bg-indigo-700">Deploy Node</button>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
 
-const MobileNavItem = ({ icon, active, onClick }: any) => (
-  <button onClick={onClick} className={`p-4 rounded-2xl ${active ? 'bg-indigo-600 text-white shadow-xl' : 'text-slate-400'}`}>{icon}</button>
-);
-const SidebarItem = ({ icon, label, active, onClick }: any) => (
-  <button onClick={onClick} className={`w-full flex items-center gap-4 px-5 py-4 rounded-2xl text-[10px] font-black uppercase tracking-widest transition-all ${active ? 'bg-indigo-600 text-white shadow-xl shadow-indigo-100' : 'text-slate-500 hover:bg-slate-50'}`}>{icon}{label}</button>
-);
+const MobileNavItem = ({ icon, active, onClick }: any) => <button onClick={onClick} className={`p-4 rounded-2xl ${active ? 'bg-indigo-600 text-white shadow-xl' : 'text-slate-400'}`}>{icon}</button>;
+const SidebarItem = ({ icon, label, active, onClick }: any) => <button onClick={onClick} className={`w-full flex items-center gap-4 px-5 py-4 rounded-2xl text-[10px] font-black uppercase tracking-widest transition-all ${active ? 'bg-indigo-600 text-white shadow-xl' : 'text-slate-500 hover:bg-slate-50'}`}>{icon}{label}</button>;
 const ProjectCard = ({ project, onCopyInvite, copied, isAdmin }: any) => (
   <div className="bg-white p-10 rounded-[2.5rem] border border-slate-100 shadow-sm group">
     <div className="flex justify-between items-start mb-8">
@@ -366,8 +372,8 @@ const ProjectCard = ({ project, onCopyInvite, copied, isAdmin }: any) => (
 );
 const EmptyState = ({ isAdmin, onCreate }: any) => (
   <div className="bg-white rounded-[3rem] p-16 text-center border-2 border-dashed border-slate-200 w-full">
-    <h3 className="text-2xl font-black text-slate-900 mb-4">No Clusters Available</h3>
-    {isAdmin && <button onClick={onCreate} className="bg-indigo-600 text-white px-8 py-4 rounded-full font-black text-[10px] uppercase">Initialize Cluster</button>}
+    <h3 className="text-2xl font-black mb-4">No Clusters Found</h3>
+    {isAdmin && <button onClick={onCreate} className="bg-indigo-600 text-white px-8 py-4 rounded-full font-black text-[10px] uppercase">Initialize Node</button>}
   </div>
 );
 export default App;
