@@ -39,7 +39,7 @@ const LeadForm: React.FC<LeadFormProps> = ({ currentUser, projects, onSuccess })
       const defaultId = currentUser.assigned_project_ids?.[0] || projects[0].id;
       setFormData(prev => ({ ...prev, project_id: defaultId }));
     }
-  }, [projects, currentUser, formData.project_id]);
+  }, [projects, currentUser.assigned_project_ids]);
 
   useEffect(() => {
     const contact = formData.client_contact.replace(/\D/g, '');
@@ -113,7 +113,7 @@ const LeadForm: React.FC<LeadFormProps> = ({ currentUser, projects, onSuccess })
       if (imageFile) {
         try {
           const fileExt = imageFile.name.split('.').pop();
-          const fileName = `${Date.now()}-${Math.random().toString(36).substring(2)}.${fileExt}`;
+          const fileName = `${Date.now()}-${Math.random().toString(36).substring(7)}.${fileExt}`;
           const { data: uploadData, error: uploadError } = await supabase.storage
             .from('lead-images')
             .upload(fileName, imageFile);
@@ -122,10 +122,10 @@ const LeadForm: React.FC<LeadFormProps> = ({ currentUser, projects, onSuccess })
             const { data: { publicUrl } } = supabase.storage.from('lead-images').getPublicUrl(fileName);
             imageUrl = publicUrl;
           } else {
-            console.warn("Storage upload failed (check if 'lead-images' bucket is created and public):", uploadError);
+            console.warn("Storage upload logic failed - Ensure 'lead-images' bucket is PUBLIC", uploadError);
           }
         } catch (storageErr) {
-          console.warn("Storage upload logic failed, proceeding without image", storageErr);
+          console.error("Storage Error:", storageErr);
         }
       }
 
@@ -136,15 +136,19 @@ const LeadForm: React.FC<LeadFormProps> = ({ currentUser, projects, onSuccess })
           client_contact: `91${formData.client_contact}`,
           user_id: currentUser.id,
           client_image_url: imageUrl || null,
+          created_at: new Date().toISOString()
         });
 
       if (error) {
-        console.error("Supabase Insert Error:", error);
-        throw new Error(error.message || "Database rejected the entry. Check your table RLS policies.");
+        if (error.message.includes("row-level security policy")) {
+          throw new Error("ACCESS DENIED: Database policy error. Ensure RLS allows INSERT for leads table.");
+        }
+        throw error;
       }
       
       onSuccess();
     } catch (err: any) {
+      console.error("Lead Insert Failure:", err);
       setFormError(err.message || "Critical failure during lead deployment.");
     } finally {
       setSubmitting(false);
@@ -180,9 +184,12 @@ const LeadForm: React.FC<LeadFormProps> = ({ currentUser, projects, onSuccess })
 
       <form onSubmit={handleSubmit} className="p-12 md:p-16 space-y-16">
         {formError && (
-          <div className="p-6 bg-rose-50 border border-rose-100 rounded-3xl flex items-center gap-4 text-rose-600 animate-in slide-in-from-top-2">
-            <AlertCircle size={20} />
-            <p className="text-xs font-black uppercase tracking-widest leading-relaxed">{formError}</p>
+          <div className="p-8 bg-rose-50 border-2 border-rose-200 rounded-[2rem] flex items-start gap-5 text-rose-700 animate-in slide-in-from-top-4">
+            <AlertCircle size={28} className="shrink-0 mt-1" />
+            <div>
+              <p className="text-xs font-black uppercase tracking-widest mb-2">Security Protocol Breach</p>
+              <p className="text-sm font-medium leading-relaxed">{formError}</p>
+            </div>
           </div>
         )}
 
